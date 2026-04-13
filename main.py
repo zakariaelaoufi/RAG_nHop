@@ -4,14 +4,13 @@ from pathlib import Path
 from typing import Optional
 import argparse
 import json
-from graph import Graph, BinaryTree, Node, Edge
+from graph import BinaryTree, Node, Edge
 from prompt import rag_query_decomposition_prompt, rag_query_decomposition_tree_prompt
 from collections import defaultdict, deque
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_classic.chains import RetrievalQA
 from dotenv import load_dotenv
 from visualize import render_tree_png
-import os
 import uuid
 import re
 
@@ -62,110 +61,6 @@ def decompose_query(query: str, prompt: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON response: {response_text}") from e
 
-
-# Graph construction and execution logic
-
-# def parse_decomposition_to_graph(decomposition: dict) -> Graph:
-#     graph = Graph()
-        
-#     got = decomposition.get("GraphOfThoughts", {})
-        
-#     vertices = got.get("vertices", [])
-#     for vertex in vertices:
-#         graph.add_node(
-#             node_id=vertex["node_id"],
-#             question_placeholder=vertex["question_placeholder"],
-#             retrieved_content=vertex.get("retrieved_content", ""),
-#             answer=vertex.get("answer", ""),
-#         )
-        
-#     edges = got.get("edges", [])
-#     for edge in edges:
-#         graph.add_edge(
-#             source=edge["source"],
-#             target=edge["target"],
-#             operation_or_purpose=edge["operation_or_purpose"],
-#         )
-        
-#     return graph
-
-# def bottom_up_order(graph: Graph):
-#     in_degree = {node_id: 0 for node_id in graph.nodes}
-#     child_to_parents = defaultdict(list)
-
-#     for edge in graph.edges:
-#         child_to_parents[edge.source].append(edge.target)
-#         in_degree[edge.target] += 1
-
-#     # Start with leaves (in-degree = 0)
-#     queue = deque([n for n in graph.nodes if in_degree[n] == 0])
-#     order = []
-
-#     while queue:
-#         node = queue.popleft()
-#         order.append(node)
-
-#         for parent in child_to_parents[node]:
-#             in_degree[parent] -= 1
-#             if in_degree[parent] == 0:
-#                 queue.append(parent)
-
-#     return order
-
-# def execute_rag_graph(graph: Graph, qa_chain):
-#     # Build relationships
-#     child_to_parents = defaultdict(list)
-#     parent_to_children = defaultdict(list)
-
-#     for edge in graph.edges:
-#         child_to_parents[edge.source].append(edge.target)
-#         parent_to_children[edge.target].append(edge.source)
-
-#     # Find leaves (no dependencies)
-#     leaves = [
-#         node_id for node_id in graph.nodes
-#         if node_id not in parent_to_children
-#     ]
-
-#     visited = set()
-
-#     def execute_node(node_id):
-#         if node_id in visited:
-#             return graph.get_node(node_id).answer
-
-#         node = graph.get_node(node_id)
-
-#         # 1. Resolve children first
-#         children = parent_to_children.get(node_id, [])
-#         children_answers = {}
-
-#         for child_id in children:
-#             children_answers[child_id] = execute_node(child_id)
-
-#         # 2. Generate answer using QA chain
-#         answer = qa_chain.invoke({
-#             "query": node.question_placeholder,
-#         })
-
-#         node.answer = answer.get("result", "")
-#         node.retrieved_content = answer.get("source_documents", [])
-#         visited.add(node_id)
-
-#         print(f"Executed Node {node_id}: {node.question_placeholder}")
-#         print(f"Answer: {node.answer[:100]}...")
-#         print(f"Retrieved Content: {node.retrieved_content[:5][:100]}...")
-
-#         return answer
-
-#     # Execute from all leaves upward
-#     for leaf in leaves:
-#         execute_node(leaf)
-
-#     return graph
-
-# End of graph construction and execution logic
-
-# Tree logic
 
 def parse_decomposition_to_tree(decomposition: dict) -> BinaryTree:
     """
@@ -249,13 +144,12 @@ def execute_rag_tree(tree: BinaryTree, qa_chain) -> BinaryTree:
         node.answer = result.get("result", "")
         node.retrieved_content = result.get("source_documents", [])
 
-        print(f"\n[{node.node_id}] {node.question_placeholder}")
-        print(f"  Answer: {node.answer[:120]}...")
+        # print(f"\n[{node.node_id}] {node.question_placeholder}")
+        # print(f"  Answer: {node.answer[:120]}...")
 
     execute_node(tree.root)
     return tree
 
-# End of tree construction and execution logic
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the RAG pipeline")
@@ -277,6 +171,40 @@ def parse_args() -> argparse.Namespace:
         help="Number of retrieved documents to pass to the retriever",
     )
     return parser.parse_args()
+
+
+def run_pipeline(query: str, vector_db_path: str, top_k: int) -> None:
+    vector_db = load_vector_store(vector_db_path, get_embeddings())
+
+    if vector_db is None:
+        raise ValueError(f"Could not load vector store from {vector_db_path}")
+
+    retriever = vector_db.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": top_k}
+    )
+
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=ChatOpenAI(model="gpt-5-nano", temperature=0.0),
+        retriever=retriever,
+        return_source_documents=True
+    )
+
+    decision = determine_routing(query)
+
+    if decision.route == "SINGLE_HOP":
+        result = qa_chain.invoke({"query": query})
+        answer = result.get("result", "")
+        retrieved_content = result.get("source_documents", [])
+    else:
+        decomposition = decompose_query(query, rag_query_decomposition_tree_prompt)
+        tree = parse_decomposition_to_tree(decomposition)
+        execute_rag_tree(tree, qa_chain)
+        answer = tree.root.answer
+        retrieved_content = tree.root.retrieved_content
+        render_tree_png(tree, f"decompositions/test/decomposition_{_safe_filename_fragment(query)}_{uuid.uuid4()}.png", title=query)
+
+    return answer, retrieved_content, decision
 
 
 def main():
@@ -321,36 +249,6 @@ def main():
         # for doc, score in rs:
         #     print(f"Doc: {doc.page_content[:200]}... (score: {score})")
 
-    # else:
-    #     print("Routing to MULTI_HOP reasoning pipeline...")
-    #     decomposition = decompose_query(query)
-    #     graph_decomposition = parse_decomposition_to_graph(decomposition)
-    #     # print(f"Decomposed Query: {decomposition}")
-    #     # node = graph_decomposition.get_node("N1", {})
-    #     # if node:
-    #     #     print(node.question_placeholder)
-
-    #     # Iterate over edges
-    #     for edge in graph_decomposition.edges:
-    #         print(f"{edge.source} -({edge.operation_or_purpose})-> {edge.target}")
-    #         print("---")
-
-    #     for edge in graph_decomposition.edges:
-    #         source_node = graph_decomposition.get_node(edge.source)
-    #         target_node = graph_decomposition.get_node(edge.target)
-    #         print(f"{source_node.question_placeholder} -({edge.operation_or_purpose})-> {target_node.question_placeholder}")
-    #         print("---")
-    #     print("=== Bottom-Up Execution Order ===")
-
-    #     ordd = bottom_up_order(graph_decomposition)
-    #     print(f"Bottom-up order of nodes: {ordd}")
-
-    #     final_graph = execute_rag_graph(graph_decomposition, qa_chain)
-    #     # final_answer = final_graph.get_node("N3").answer
-    #     last_val = next(reversed(final_graph.nodes.values()))
-
-    #     print(f"Final Answer: {last_val}")
-
     else:
         print("\nRouting to MULTI_HOP binary tree pipeline...")
         decomposition = decompose_query(query, rag_query_decomposition_tree_prompt)
@@ -369,8 +267,12 @@ def main():
         execute_rag_tree(tree, qa_chain)
 
         print(f"\n=== Final Answer (root: {tree.root.node_id}) ===")
-        print(tree.root.answer)
         render_tree_png(tree, f"decompositions/answered/decomposition_{query_tag}__answered_{uuid.uuid4()}.png")
+        print("=" * 50)
+        print(f"Final Answer: {tree.root.answer}")
+        print("\nSources for root node:")
+        for doc in tree.root.retrieved_content:
+            print(f"- {doc.page_content[:200]}... (score: {doc.metadata.get('score', 'N/A')})")
 
 
 if __name__ == "__main__":

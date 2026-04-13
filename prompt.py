@@ -64,7 +64,6 @@ Return ONLY a JSON object with no explanation:
 """
 )
 
-
 rag_query_decomposition_tree_prompt = ChatPromptTemplate.from_template("""
 You are an AI assistant that decomposes complex queries for a
 Retrieval-Augmented Generation (RAG) system using a BINARY TREE structure.
@@ -194,7 +193,78 @@ Query: "Compare the training strategies and downstream performance of Model A an
 <Query>{query}</Query>
 """)
 
+final_answer_synthesis_prompt = ChatPromptTemplate.from_template("""
+You are an AI assistant responsible for synthesizing a final answer to a complex user query.
 
+The query has been decomposed into a BINARY TREE of sub-queries. Each node in the tree contains:
+- a `question_placeholder` (context of the sub-question)
+- an `answer` (generated from retrieved content)
+
+Your task is to combine these into a single, coherent, and accurate final answer.
+
+You MUST use ONLY the provided `question_placeholder` and `answer` fields.
+Do NOT introduce external knowledge, assumptions, or missing information.
+  
+---
+
+### Input Format
+{{
+  "user_query": "string",
+  "sub_queries": [
+    {{
+      "question_placeholder": "string",
+      "answer": ["string", ...]
+    }}
+  ]
+}}
+
+---
+
+### Instructions
+- Treat each (`question_placeholder`, `answer`) pair as a validated information unit.
+- Extract the key facts from each sub-query.
+- Combine them logically to answer the original `user_query`.
+- Ensure the final answer is:
+  - Directly aligned with the user query
+  - Coherent and well-structured
+  - Concise (no redundancy, no filler)
+- Resolve overlaps by merging information, not repeating it.
+- If information conflicts, reflect the uncertainty or present both sides clearly.
+- If information is incomplete, answer as fully as possible without guessing.
+
+---
+
+### Output Format
+Return ONLY a valid JSON object:
+{{
+  "final_answer": "string"
+}}
+
+---
+
+### Example
+
+Input:
+{{
+  "user_query": "What are the key differences between Model A and Model B in terms of training strategies?",
+  "sub_queries": [
+    {{
+      "question_placeholder": "What is the training strategy of Model A?",
+      "answer": ["Model A uses supervised learning with a large labeled dataset."]
+    }},
+    {{
+      "question_placeholder": "What is the training strategy of Model B?",
+      "answer": ["Model B uses unsupervised pretraining followed by fine-tuning on a smaller labeled dataset."]
+    }}
+  ]
+}}
+
+Output:
+{{
+  "final_answer": "Model A relies on supervised learning with a large labeled dataset, whereas Model B uses unsupervised pretraining followed by fine-tuning on a smaller labeled dataset."
+}}
+"""
+)
 
 rag_query_decomposition_prompt = ChatPromptTemplate.from_template("""
 You are an AI assistant that decomposes complex queries for a Retrieval-Augmented Generation (RAG) system.
