@@ -64,6 +64,138 @@ Return ONLY a JSON object with no explanation:
 """
 )
 
+
+rag_query_decomposition_tree_prompt = ChatPromptTemplate.from_template("""
+You are an AI assistant that decomposes complex queries for a
+Retrieval-Augmented Generation (RAG) system using a BINARY TREE structure.
+
+CORE RULE — BINARY DECOMPOSITION ONLY:
+- Every node may have AT MOST 2 children (left, right).
+- If a sub-query is still complex, decompose it further into at most 2
+  children of its own — this is the recursive step.
+- Leaf nodes (no children) are directly retrievable atomic questions.
+- The root node synthesizes all children answers into the final answer.
+
+DECOMPOSITION STRATEGY:
+1. Identify the core intent of the query.
+2. Split into AT MOST 2 sub-questions per node.
+3. If a sub-question is still compound, recurse: give it its own 2 children.
+4. Stop recursing when a question is atomic and directly retrievable.
+5. The root node's question should be the final integrating/synthesis question.
+
+QUERY FORMULATION:
+Each `question_placeholder` must:
+- Express exactly ONE information need.
+- Be atomic at its level (leaves must be directly retrievable).
+- Be ≤15 words, max 20.
+- Be retrieval-optimized (search-style, not instructional).
+
+NODE FIELDS (every node must have ALL of these):
+- `node_id`             : unique string (e.g. "N1", "N1_1", "N1_2")
+- `question_placeholder`: self-contained retrievable question
+- `retrieved_content`   : ALWAYS ""
+- `answer`              : ALWAYS ""
+- `left`                : node_id string of left child, or null if leaf
+- `right`               : node_id string of right child, or null if leaf
+
+STRICT RULES:
+- Max 2 children per node.
+- Leaves have null for both left and right.
+- No cycles.
+- Return VALID JSON ONLY — no markdown, no explanations.
+
+SCHEMA:
+{{
+  "BinaryTree": {{
+    "user_query": "string",
+    "root": "node_id of root node",
+    "nodes": [
+      {{
+        "node_id": "string",
+        "question_placeholder": "string",
+        "retrieved_content": "",
+        "answer": "",
+        "left": "node_id or null",
+        "right": "node_id or null"
+      }}
+    ]
+  }}
+}}
+
+EXAMPLE:
+
+Query: "Compare the training strategies and downstream performance of Model A and Model B"
+
+{{
+  "BinaryTree": {{
+    "user_query": "Compare the training strategies and downstream performance of Model A and Model B",
+    "root": "N1",
+    "nodes": [
+      {{
+        "node_id": "N1",
+        "question_placeholder": "How do training strategies and performance of Model A and Model B compare?",
+        "retrieved_content": "",
+        "answer": "",
+        "left": "N2",
+        "right": "N3"
+      }},
+      {{
+        "node_id": "N2",
+        "question_placeholder": "Compare training strategies of Model A and Model B",
+        "retrieved_content": "",
+        "answer": "",
+        "left": "N2_1",
+        "right": "N2_2"
+      }},
+      {{
+        "node_id": "N3",
+        "question_placeholder": "Compare downstream task performance of Model A and Model B",
+        "retrieved_content": "",
+        "answer": "",
+        "left": "N3_1",
+        "right": "N3_2"
+      }},
+      {{
+        "node_id": "N2_1",
+        "question_placeholder": "What is the training strategy of Model A?",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }},
+      {{
+        "node_id": "N2_2",
+        "question_placeholder": "What is the training strategy of Model B?",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }},
+      {{
+        "node_id": "N3_1",
+        "question_placeholder": "What is the downstream performance of Model A?",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }},
+      {{
+        "node_id": "N3_2",
+        "question_placeholder": "What is the downstream performance of Model B?",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }}
+    ]
+  }}
+}}
+
+<Query>{query}</Query>
+""")
+
+
+
 rag_query_decomposition_prompt = ChatPromptTemplate.from_template("""
 You are an AI assistant that decomposes complex queries for a Retrieval-Augmented Generation (RAG) system.
 
@@ -156,19 +288,25 @@ example:
         "node_id": "N1",
         "question_placeholder": "What are its key properties of X?",
         "retrieved_content": "",
-        "answer": ""
+        "answer": "",
+        "right": null,
+        "left": null
       }},
       {{
         "node_id": "N2",
         "question_placeholder": "What are its key properties of Y?",
         "retrieved_content": "",
-        "answer": ""
+        "answer": "",
+        "right": null,
+        "left": null
       }},
       {{
         "node_id": "N3",
         "question_placeholder": "What is the relationship between X and Y?",
         "retrieved_content": "",
-        "answer": ""
+        "answer": "",
+        "right": N1,
+        "left": N2
       }}
     ],
     "edges": [
