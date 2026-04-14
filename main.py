@@ -95,21 +95,6 @@ def parse_decomposition_to_tree(decomposition: dict) -> BinaryTree:
 
     return tree
 
-def postorder(node: Optional[Node]) -> list[Node]:
-    """Return nodes in post-order: left → right → parent."""
-    if node is None:
-        return []
-    return postorder(node.left) + postorder(node.right) + [node]
-
-
-def retrieve_for_node(node: Node, retriever) -> str:
-    """
-    Retrieve relevant documents for a single node's question.
-    Returns the concatenated page content of top-k docs.
-    """
-    docs = retriever.invoke(node.question_placeholder)
-    return "\n\n".join(doc.page_content for doc in docs)
-
 
 def execute_rag_tree(tree: BinaryTree, qa_chain) -> BinaryTree:
     """
