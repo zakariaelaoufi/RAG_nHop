@@ -68,46 +68,73 @@ rag_query_decomposition_tree_prompt = ChatPromptTemplate.from_template("""
 You are an AI assistant that decomposes complex queries for a
 Retrieval-Augmented Generation (RAG) system using a BINARY TREE structure.
 
-CORE RULE — BINARY DECOMPOSITION ONLY:
+========================================
+CORE RULE — BINARY DECOMPOSITION ONLY
+========================================
 - Every node may have AT MOST 2 children (left, right).
-- If a sub-query is still complex, decompose it further into at most 2
-  children of its own — this is the recursive step.
-- Leaf nodes (no children) are directly retrievable atomic questions.
-- The root node synthesizes all children answers into the final answer.
+- MAX DEPTH — the tree must not exceed depth 3 (root = depth 0).
+- If a sub-query is still complex, decompose it into at most 2 children.
+- ATOMIC STOP CONDITION — stop when a question can be answered by a SINGLE document passage with no cross-document synthesis.
+- NON-OVERLAPPING CHILDREN — siblings must cover strictly different aspects (no paraphrasing or subsumption).
+- NO PARENT PARAPHRASE — children must not reword the parent.
+- ASYMMETRY IS ALLOWED — one branch can stop while the other continues.
+- BALANCE PREFERENCE — prefer balanced depth when complexity is similar.
+- Leaf nodes are directly retrievable atomic questions.
+- The root node synthesizes all children answers.
 
-DECOMPOSITION STRATEGY:
+========================================
+DECOMPOSITION STRATEGY
+========================================
 1. Identify the core intent of the query.
-2. Split into AT MOST 2 sub-questions per node.
-3. If a sub-question is still compound, recurse: give it its own 2 children.
-4. Stop recursing when a question is atomic and directly retrievable.
-5. The root node's question should be the final integrating/synthesis question.
+2. Split into AT MOST 2 sub-questions.
+3. If a sub-question is still complex, recursively decompose it.
+4. Stop when the question becomes atomic and directly retrievable.
+5. Ensure the root question is the final synthesis query.
 
-QUERY FORMULATION:
+========================================
+QUERY FORMULATION RULES
+========================================
 Each `question_placeholder` must:
 - Express exactly ONE information need.
 - Be atomic at its level (leaves must be directly retrievable).
-- Be ≤15 words, max 20.
+- Be ≤15 words (max 20).
 - Be retrieval-optimized (search-style, not instructional).
+- Be phrased as a query (noun phrase or direct question).
+- Avoid words like "explain", "describe", "tell me".
+- Be unique across nodes.
+- Add new informational value (no paraphrasing across nodes).
 
-NODE FIELDS (every node must have ALL of these):
-- `node_id`             : unique string (e.g. "N1", "N1_1", "N1_2")
-- `question_placeholder`: self-contained retrievable question
-- `retrieved_content`   : ALWAYS ""
-- `answer`              : ALWAYS ""
-- `left`                : node_id string of left child, or null if leaf
-- `right`               : node_id string of right child, or null if leaf
+========================================
+NODE STRUCTURE (REQUIRED FIELDS)
+========================================
+Each node MUST include:
+- `node_id`:
+    Root          → "N1"
+    Left child    → "N1_L"
+    Right child   → "N1_R"
+    Deeper levels → "N1_L_L", "N1_L_R", etc.
+- `question_placeholder`: self-contained retrievable query
+- `retrieved_content`: ALWAYS ""
+- `answer`: ALWAYS ""
+- `left`: node_id or null
+- `right`: node_id or null
 
-STRICT RULES:
+========================================
+STRICT RULES
+========================================
 - Max 2 children per node.
-- Leaves have null for both left and right.
+- Leaves must have `left = null` and `right = null`.
 - No cycles.
-- Return VALID JSON ONLY — no markdown, no explanations.
+- NEVER paraphrase the parent question.
+- Return VALID JSON ONLY (no markdown, no explanations).
 
-SCHEMA:
+========================================
+SCHEMA
+========================================
 {{
   "BinaryTree": {{
     "user_query": "string",
-    "root": "node_id of root node",
+    "root": "node_id",
     "nodes": [
       {{
         "node_id": "string",
@@ -121,8 +148,9 @@ SCHEMA:
   }}
 }}
 
-EXAMPLE:
-
+========================================
+EXAMPLE 1 — Symmetric Tree
+========================================
 Query: "Compare the training strategies and downstream performance of Model A and Model B"
 
 {{
@@ -132,55 +160,121 @@ Query: "Compare the training strategies and downstream performance of Model A an
     "nodes": [
       {{
         "node_id": "N1",
-        "question_placeholder": "How do training strategies and performance of Model A and Model B compare?",
+        "question_placeholder": "Compare the training strategies and downstream performance of Model A and Model B",
+        "retrieval_hint": "n/a",
         "retrieved_content": "",
         "answer": "",
-        "left": "N2",
-        "right": "N3"
+        "left": "N1_L",
+        "right": "N1_R"
       }},
       {{
-        "node_id": "N2",
-        "question_placeholder": "Compare training strategies of Model A and Model B",
+        "node_id": "N1_L",
+        "question_placeholder": "What are the training strategy differences between Model A and Model B?",
+        "retrieval_hint": "n/a",
         "retrieved_content": "",
         "answer": "",
-        "left": "N2_1",
-        "right": "N2_2"
+        "left": "N1_L_L",
+        "right": "N1_L_R"
       }},
       {{
-        "node_id": "N3",
-        "question_placeholder": "Compare downstream task performance of Model A and Model B",
+        "node_id": "N1_R",
+        "question_placeholder": "What are the downstream performance differences between Model A and Model B?",
+        "retrieval_hint": "n/a",
         "retrieved_content": "",
         "answer": "",
-        "left": "N3_1",
-        "right": "N3_2"
+        "left": "N1_R_L",
+        "right": "N1_R_R"
       }},
       {{
-        "node_id": "N2_1",
-        "question_placeholder": "What is the training strategy of Model A?",
-        "retrieved_content": "",
-        "answer": "",
-        "left": null,
-        "right": null
-      }},
-      {{
-        "node_id": "N2_2",
-        "question_placeholder": "What is the training strategy of Model B?",
+        "node_id": "N1_L_L",
+        "question_placeholder": "What training objective and data does Model A use?",
+        "retrieval_hint": "factual",
         "retrieved_content": "",
         "answer": "",
         "left": null,
         "right": null
       }},
       {{
-        "node_id": "N3_1",
-        "question_placeholder": "What is the downstream performance of Model A?",
+        "node_id": "N1_L_R",
+        "question_placeholder": "What training objective and data does Model B use?",
+        "retrieval_hint": "factual",
         "retrieved_content": "",
         "answer": "",
         "left": null,
         "right": null
       }},
       {{
-        "node_id": "N3_2",
-        "question_placeholder": "What is the downstream performance of Model B?",
+        "node_id": "N1_R_L",
+        "question_placeholder": "Model A benchmark scores on downstream tasks",
+        "retrieval_hint": "comparative",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }},
+      {{
+        "node_id": "N1_R_R",
+        "question_placeholder": "Model B benchmark scores on downstream tasks",
+        "retrieval_hint": "comparative",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }}
+    ]
+  }}
+}}
+
+========================================
+EXAMPLE 2 — Asymmetric Tree
+========================================
+Query: "What caused the 2008 financial crisis and how did the Dodd-Frank Act respond?"
+
+{{
+  "BinaryTree": {{
+    "user_query": "What caused the 2008 financial crisis and how did the Dodd-Frank Act respond?",
+    "root": "N1",
+    "nodes": [
+      {{
+        "node_id": "N1",
+        "question_placeholder": "What caused the 2008 financial crisis and how did the Dodd-Frank Act respond?",
+        "retrieval_hint": "n/a",
+        "retrieved_content": "",
+        "answer": "",
+        "left": "N1_L",
+        "right": "N1_R"
+      }},
+      {{
+        "node_id": "N1_L",
+        "question_placeholder": "What were the primary causes of the 2008 financial crisis?",
+        "retrieval_hint": "n/a",
+        "retrieved_content": "",
+        "answer": "",
+        "left": "N1_L_L",
+        "right": "N1_L_R"
+      }},
+      {{
+        "node_id": "N1_R",
+        "question_placeholder": "Key regulatory provisions introduced by the Dodd-Frank Act",
+        "retrieval_hint": "factual",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }},
+      {{
+        "node_id": "N1_L_L",
+        "question_placeholder": "Role of mortgage-backed securities in the 2008 financial crisis",
+        "retrieval_hint": "causal",
+        "retrieved_content": "",
+        "answer": "",
+        "left": null,
+        "right": null
+      }},
+      {{
+        "node_id": "N1_L_R",
+        "question_placeholder": "How did regulatory failures contribute to the 2008 financial crisis?",
+        "retrieval_hint": "causal",
         "retrieved_content": "",
         "answer": "",
         "left": null,
@@ -192,6 +286,27 @@ Query: "Compare the training strategies and downstream performance of Model A an
 
 <Query>{query}</Query>
 """)
+
+final_answer_hirarchy_prompt = ChatPromptTemplate.from_template("""
+You are given a hierarchical question decomposition tree of a complex query with retrieved evidence for each atomic question.
+
+## Main Question
+{main_question}
+
+## Hierarchical decomposition with retrieved evidence
+{hierarchy_template}
+
+## Instructions
+- Answer the **main question only** using the retrieved evidence provided above.
+- Follow the reasoning bottom-up: use the atomic questions (leaves) answers to build up to the final answer.
+- Do NOT answer sub-questions individually, do NOT list intermediate steps.
+- Your final answer must be a single, coherent, well-structured response.
+- Only use information present in the retrieved chunks. Do not hallucinate or add external knowledge.
+- If the retrieved evidence is insufficient to answer the main question, say so explicitly.
+
+## Answer
+"""
+)
 
 final_answer_synthesis_prompt = ChatPromptTemplate.from_template("""
 You are an AI assistant responsible for synthesizing a final answer to a complex user query.
