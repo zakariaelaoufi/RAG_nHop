@@ -8,3 +8,7 @@ faiss-cpu
 tiktoken
 pypdf
 dotenv
+pandas
+numpy
+matplotlib
+networkx
