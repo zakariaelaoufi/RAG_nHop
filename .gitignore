@@ -3,3 +3,4 @@ __pycache__/
 decompositions/
 .env
 dfs/
+IRCoT/logs/
