@@ -8,7 +8,7 @@ from typing import List, Optional
 import argparse
 import json
 from graph import BinaryTree, Node, Edge
-from prompt import rag_query_decomposition_prompt, rag_query_decomposition_tree_prompt, final_answer_hirarchy_prompt
+from prompt import rag_query_decomposition_tree_prompt, final_answer_hirarchy_prompt
 from collections import defaultdict, deque
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_classic.chains import RetrievalQA
@@ -394,11 +394,6 @@ def main():
         for doc in result.get("source_documents", []):
             print(f"- {doc.page_content[:200]}... (score: {doc.metadata.get('score', 'N/A')})")
 
-        # print("\n---\n")
-        # rs = vector_db.similarity_search_with_score(query, k=3)
-        # for doc, score in rs:
-        #     print(f"Doc: {doc.page_content[:200]}... (score: {score})")
-
     else:
         print("\nRouting to MULTI_HOP binary tree pipeline...")
         decomposition = decompose_query(query, rag_query_decomposition_tree_prompt)
@@ -407,15 +402,7 @@ def main():
         render_tree_png(tree, f"decompositions/questions/decomposition_{query_tag}_{uuid.uuid4()}.png", title=query)
 
         print("\n=== Post-Order Traversal ===")
-        # # postorder_nodes = postorder(tree.root)
-        # print(f"Post-order traversal of tree nodes: {postorder_nodes}")
-        # for node in postorder_nodes:
-        #     l = node.left.node_id if node.left else "null"
-        #     r = node.right.node_id if node.right else "null"
-        #     print(f"  [{node.node_id}] left={l}, right={r} | {node.question_placeholder}")
-
         execute_rag_tree(tree, qa_chain)
-
         print(f"\n=== Final Answer (root: {tree.root.node_id}) ===")
         render_tree_png(tree, f"decompositions/answered/decomposition_{query_tag}__answered_{uuid.uuid4()}.png")
         print("=" * 50)

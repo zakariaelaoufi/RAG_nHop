@@ -5,9 +5,8 @@ from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, END
 import json
 from datetime import datetime
-import re
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from main import load_vector_store, get_embeddings, get_llm_openai
+from tree_of_query.main import load_vector_store, get_embeddings, get_llm_openai
 from prompts import generate_new_query_prompt, generate_final_answer_prompt, judge_answer_prompt
 
 class RAGState(TypedDict):
