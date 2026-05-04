@@ -2,5 +2,6 @@
 __pycache__/
 decompositions/
 .env
+.venv/
 dfs/
 IRCoT/logs/
